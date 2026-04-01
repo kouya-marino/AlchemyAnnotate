@@ -3,15 +3,18 @@ from __future__ import annotations
 from pathlib import Path
 
 from alchemyannotate.models.annotation import BoundingBox, ImageAnnotation
-from alchemyannotate.utils.geometry import normalize_coords, denormalize_coords
+from alchemyannotate.utils.geometry import (
+    normalize_coords, denormalize_coords,
+    normalize_points, denormalize_points, polygon_bounding_rect,
+)
 
 
 class YoloIO:
-    """Read/write YOLO format annotation files."""
+    """Read/write YOLO format annotation files (detection + segmentation)."""
 
     @staticmethod
     def read(txt_path: Path, img_w: int, img_h: int, class_list: list[str]) -> ImageAnnotation:
-        filename = txt_path.stem  # will be matched to image later
+        filename = txt_path.stem
         annotation = ImageAnnotation(
             image_filename=filename,
             image_width=img_w,
@@ -29,13 +32,31 @@ class YoloIO:
             if len(parts) < 5:
                 continue
             class_idx = int(parts[0])
-            cx, cy, w, h = float(parts[1]), float(parts[2]), float(parts[3]), float(parts[4])
-            xmin, ymin, xmax, ymax = denormalize_coords(cx, cy, w, h, img_w, img_h)
             class_name = class_list[class_idx] if class_idx < len(class_list) else f"class_{class_idx}"
-            annotation.boxes.append(BoundingBox(
-                class_name=class_name,
-                xmin=xmin, ymin=ymin, xmax=xmax, ymax=ymax,
-            ))
+
+            if len(parts) == 5:
+                # Standard YOLO detection: class_idx cx cy w h
+                cx, cy, w, h = float(parts[1]), float(parts[2]), float(parts[3]), float(parts[4])
+                xmin, ymin, xmax, ymax = denormalize_coords(cx, cy, w, h, img_w, img_h)
+                annotation.boxes.append(BoundingBox(
+                    class_name=class_name,
+                    xmin=xmin, ymin=ymin, xmax=xmax, ymax=ymax,
+                    annotation_type="bbox",
+                ))
+            else:
+                # YOLOv8-seg: class_idx x1 y1 x2 y2 x3 y3 ...
+                norm_points = []
+                for i in range(1, len(parts) - 1, 2):
+                    norm_points.append([float(parts[i]), float(parts[i + 1])])
+                if len(norm_points) >= 3:
+                    abs_points = denormalize_points(norm_points, img_w, img_h)
+                    xmin, ymin, xmax, ymax = polygon_bounding_rect(abs_points)
+                    annotation.boxes.append(BoundingBox(
+                        class_name=class_name,
+                        xmin=xmin, ymin=ymin, xmax=xmax, ymax=ymax,
+                        annotation_type="polygon",
+                        points=abs_points,
+                    ))
 
         return annotation
 
@@ -49,11 +70,20 @@ class YoloIO:
                 class_idx = len(class_list)
                 class_list.append(box.class_name)
 
-            cx, cy, w, h = normalize_coords(
-                box.xmin, box.ymin, box.xmax, box.ymax,
-                annotation.image_width, annotation.image_height,
-            )
-            lines.append(f"{class_idx} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}")
+            if box.annotation_type == "polygon" and box.points:
+                # YOLOv8-seg format: class_idx x1 y1 x2 y2 ...
+                norm_pts = normalize_points(
+                    box.points, annotation.image_width, annotation.image_height
+                )
+                coords = " ".join(f"{p[0]:.6f} {p[1]:.6f}" for p in norm_pts)
+                lines.append(f"{class_idx} {coords}")
+            else:
+                # Standard YOLO detection format
+                cx, cy, w, h = normalize_coords(
+                    box.xmin, box.ymin, box.xmax, box.ymax,
+                    annotation.image_width, annotation.image_height,
+                )
+                lines.append(f"{class_idx} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}")
 
         txt_path.parent.mkdir(parents=True, exist_ok=True)
         txt_path.write_text("\n".join(lines) + "\n" if lines else "", encoding="utf-8")

@@ -9,6 +9,11 @@ class AnnotationFormat(str, Enum):
     COCO = "coco"
 
 
+class AnnotationType(str, Enum):
+    BBOX = "bbox"
+    POLYGON = "polygon"
+
+
 ANNOTATION_FOLDER_NAMES = {
     AnnotationFormat.YOLO: "annotations_yolo",
     AnnotationFormat.VOC: "annotations_voc",

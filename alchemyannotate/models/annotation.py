@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 @dataclass
 class BoundingBox:
-    """Single bounding box in absolute pixel coordinates."""
+    """Single annotation in absolute pixel coordinates. Supports bbox and polygon types."""
 
     class_name: str = ""
     xmin: float = 0.0
@@ -14,6 +14,8 @@ class BoundingBox:
     xmax: float = 0.0
     ymax: float = 0.0
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
+    annotation_type: str = "bbox"
+    points: list[list[float]] = field(default_factory=list)
 
     @property
     def width(self) -> float:
@@ -23,26 +25,44 @@ class BoundingBox:
     def height(self) -> float:
         return self.ymax - self.ymin
 
+    def compute_bbox_from_points(self) -> None:
+        """Set xmin/ymin/xmax/ymax from polygon points."""
+        if not self.points:
+            return
+        xs = [p[0] for p in self.points]
+        ys = [p[1] for p in self.points]
+        self.xmin = min(xs)
+        self.ymin = min(ys)
+        self.xmax = max(xs)
+        self.ymax = max(ys)
+
     def to_dict(self) -> dict:
-        return {
+        d = {
             "id": self.id,
             "class_name": self.class_name,
+            "annotation_type": self.annotation_type,
             "xmin": self.xmin,
             "ymin": self.ymin,
             "xmax": self.xmax,
             "ymax": self.ymax,
         }
+        if self.points:
+            d["points"] = self.points
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> BoundingBox:
-        return cls(
+        box = cls(
             id=d.get("id", uuid.uuid4().hex[:8]),
             class_name=d.get("class_name", ""),
+            annotation_type=d.get("annotation_type", "bbox"),
             xmin=float(d.get("xmin", 0)),
             ymin=float(d.get("ymin", 0)),
             xmax=float(d.get("xmax", 0)),
             ymax=float(d.get("ymax", 0)),
+            points=d.get("points", []),
         )
+        return box
 
 
 @dataclass

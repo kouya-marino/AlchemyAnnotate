@@ -62,3 +62,69 @@ def test_coco_empty_annotations():
         CocoIO.write_all({}, json_path, [])
         restored = CocoIO.read_all(json_path, [])
         assert restored == {}
+
+
+def test_coco_polygon_write_read_roundtrip():
+    annotations = {
+        "img1.jpg": ImageAnnotation(
+            image_filename="img1.jpg",
+            image_width=640,
+            image_height=480,
+            boxes=[
+                BoundingBox(
+                    class_name="cat",
+                    annotation_type="polygon",
+                    points=[[100, 100], [200, 100], [200, 200], [100, 200]],
+                    xmin=100, ymin=100, xmax=200, ymax=200,
+                ),
+            ],
+        ),
+    }
+    class_list = ["cat"]
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        json_path = Path(tmpdir) / "annotations.json"
+        CocoIO.write_all(annotations, json_path, class_list)
+
+        restored_classes = list(class_list)
+        restored = CocoIO.read_all(json_path, restored_classes)
+
+        assert "img1.jpg" in restored
+        assert len(restored["img1.jpg"].boxes) == 1
+        box = restored["img1.jpg"].boxes[0]
+        assert box.annotation_type == "polygon"
+        assert box.class_name == "cat"
+        assert len(box.points) == 4
+        assert box.points[0] == [100, 100]
+        assert box.points[2] == [200, 200]
+
+
+def test_coco_mixed_bbox_polygon():
+    annotations = {
+        "img1.jpg": ImageAnnotation(
+            image_filename="img1.jpg",
+            image_width=640,
+            image_height=480,
+            boxes=[
+                BoundingBox(class_name="dog", xmin=10, ymin=20, xmax=110, ymax=120),
+                BoundingBox(
+                    class_name="cat",
+                    annotation_type="polygon",
+                    points=[[50, 50], [150, 50], [100, 150]],
+                    xmin=50, ymin=50, xmax=150, ymax=150,
+                ),
+            ],
+        ),
+    }
+    class_list = ["dog", "cat"]
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        json_path = Path(tmpdir) / "annotations.json"
+        CocoIO.write_all(annotations, json_path, class_list)
+
+        restored = CocoIO.read_all(json_path, list(class_list))
+        boxes = restored["img1.jpg"].boxes
+        assert len(boxes) == 2
+        assert boxes[0].annotation_type == "bbox"
+        assert boxes[1].annotation_type == "polygon"
+        assert len(boxes[1].points) == 3

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal, QSize
-from PySide6.QtGui import QAction, QKeySequence, QIcon, QPixmap, QPainter, QColor, QPen
+from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QIcon, QPixmap, QPainter, QColor, QPen
 from PySide6.QtWidgets import (
     QMainWindow,
     QDockWidget,
@@ -60,6 +60,19 @@ def _make_icon_edit() -> QIcon:
     return QIcon(pm)
 
 
+def _make_icon_polygon() -> QIcon:
+    """Create a polygon icon (triangle shape)."""
+    pm = QPixmap(24, 24)
+    pm.fill(QColor("transparent"))
+    p = QPainter(pm)
+    p.setPen(QPen(QColor("#f58231"), 2))
+    p.drawLine(12, 3, 3, 20)
+    p.drawLine(3, 20, 21, 20)
+    p.drawLine(21, 20, 12, 3)
+    p.end()
+    return QIcon(pm)
+
+
 class MainWindow(QMainWindow):
     """Main application window."""
 
@@ -73,6 +86,7 @@ class MainWindow(QMainWindow):
     prev_image_requested = Signal()
     next_image_requested = Signal()
     draw_mode_toggled = Signal(bool)        # True = draw mode on
+    polygon_mode_toggled = Signal(bool)     # True = polygon draw mode on
     edit_class_requested = Signal()          # edit class of selected box
 
     def __init__(self, parent=None) -> None:
@@ -192,20 +206,34 @@ class MainWindow(QMainWindow):
         toolbar.setMovable(False)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
 
+        # Draw mode action group — mutually exclusive
+        self._draw_group = QActionGroup(self)
+        self._draw_group.setExclusive(False)
+
         # Draw Box (toggle)
         self._draw_action = QAction(_make_icon_draw(), "Draw Box", self)
         self._draw_action.setCheckable(True)
         self._draw_action.setChecked(True)
-        self._draw_action.setToolTip("Draw bounding box (left-click drag on image)")
+        self._draw_action.setToolTip("Draw bounding box [B]")
         self._draw_action.setShortcut(QKeySequence("B"))
         self._draw_action.toggled.connect(self._on_draw_toggled)
+        self._draw_group.addAction(self._draw_action)
         toolbar.addAction(self._draw_action)
+
+        # Draw Polygon (toggle)
+        self._polygon_action = QAction(_make_icon_polygon(), "Draw Polygon", self)
+        self._polygon_action.setCheckable(True)
+        self._polygon_action.setToolTip("Draw polygon (click vertices, double-click to close) [P]")
+        self._polygon_action.setShortcut(QKeySequence("P"))
+        self._polygon_action.toggled.connect(self._on_polygon_toggled)
+        self._draw_group.addAction(self._polygon_action)
+        toolbar.addAction(self._polygon_action)
 
         toolbar.addSeparator()
 
         # Delete Box
-        self._delete_action = QAction(_make_icon_delete(), "Delete Box", self)
-        self._delete_action.setToolTip("Delete selected box (Del)")
+        self._delete_action = QAction(_make_icon_delete(), "Delete", self)
+        self._delete_action.setToolTip("Delete selected annotation [Del]")
         self._delete_action.setShortcut(QKeySequence("Delete"))
         self._delete_action.triggered.connect(self.delete_box_requested.emit)
         toolbar.addAction(self._delete_action)
@@ -214,13 +242,27 @@ class MainWindow(QMainWindow):
 
         # Edit Class
         self._edit_class_action = QAction(_make_icon_edit(), "Edit Class", self)
-        self._edit_class_action.setToolTip("Change class of selected box (E)")
+        self._edit_class_action.setToolTip("Change class of selected annotation [E]")
         self._edit_class_action.setShortcut(QKeySequence("E"))
         self._edit_class_action.triggered.connect(self.edit_class_requested.emit)
         toolbar.addAction(self._edit_class_action)
 
     def _on_draw_toggled(self, checked: bool) -> None:
+        if checked:
+            # Turn off polygon mode
+            self._polygon_action.blockSignals(True)
+            self._polygon_action.setChecked(False)
+            self._polygon_action.blockSignals(False)
         self.draw_mode_toggled.emit(checked)
+
+    def _on_polygon_toggled(self, checked: bool) -> None:
+        if checked:
+            # Turn off box draw mode
+            self._draw_action.blockSignals(True)
+            self._draw_action.setChecked(False)
+            self._draw_action.blockSignals(False)
+            self.draw_mode_toggled.emit(False)
+        self.polygon_mode_toggled.emit(checked)
 
     def set_draw_mode(self, enabled: bool) -> None:
         """Update the draw action state without emitting signal."""

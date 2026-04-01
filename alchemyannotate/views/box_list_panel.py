@@ -57,17 +57,22 @@ class BoxListPanel(QWidget):
         self._updating = False
 
     def set_boxes(self, boxes: list[dict]) -> None:
-        """Populate box list. Each dict has: id, class_name, xmin, ymin, xmax, ymax."""
+        """Populate box list. Each dict has: id, class_name, annotation_type, xmin, ymin, xmax, ymax, points."""
         self._updating = True
         self._list.clear()
         self._box_ids.clear()
         for b in boxes:
-            label = f"{b['class_name']}: ({b['xmin']:.0f},{b['ymin']:.0f})-({b['xmax']:.0f},{b['ymax']:.0f})"
+            ann_type = b.get("annotation_type", "bbox")
+            if ann_type == "polygon":
+                n_pts = len(b.get("points", []))
+                label = f"{b['class_name']}: polygon ({n_pts} pts)"
+            else:
+                label = f"{b['class_name']}: ({b['xmin']:.0f},{b['ymin']:.0f})-({b['xmax']:.0f},{b['ymax']:.0f})"
             item = QListWidgetItem(label)
             item.setData(Qt.ItemDataRole.UserRole, b["id"])
             self._list.addItem(item)
             self._box_ids.append(b["id"])
-        self._header.setText(f"Boxes ({len(boxes)})")
+        self._header.setText(f"Annotations ({len(boxes)})")
         self._updating = False
 
     def select_box(self, box_id: str | None) -> None:

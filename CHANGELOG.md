@@ -2,6 +2,24 @@
 
 All notable changes to AlchemyAnnotate will be documented in this file.
 
+## [1.1.0] - 2026-04-01
+
+### Added
+- Polygon annotation support: click vertices to draw, double-click to close, right-click/Escape to cancel
+- Draw Polygon toolbar button (P shortcut), mutually exclusive with Draw Box (B)
+- YOLOv8-seg format support: read/write polygon annotations as normalized vertex lists
+- COCO segmentation field: read/write polygon annotations with `segmentation` data
+- `PolygonItem` canvas rendering with selection highlight and color support
+- `AnnotationType` enum (BBOX, POLYGON) in constants
+- Geometry helpers: `polygon_bounding_rect`, `normalize_points`, `denormalize_points`, `clamp_points_to_image`
+- Tests for polygon model roundtrip, YOLO-seg I/O, COCO segmentation I/O, geometry helpers
+
+### Changed
+- `BoundingBox` model extended with `annotation_type` and `points` fields
+- Box list panel now shows polygon entries as "class: polygon (N pts)"
+- Canvas controller supports `DRAWING_POLYGON` state
+- Header label changed from "Boxes" to "Annotations (N)"
+
 ## [0.1.1] - 2026-04-01
 
 ### Added

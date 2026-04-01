@@ -7,7 +7,7 @@ from alchemyannotate.models.annotation import BoundingBox, ImageAnnotation
 
 
 class CocoIO:
-    """Read/write COCO JSON annotation format."""
+    """Read/write COCO JSON annotation format with polygon support."""
 
     @staticmethod
     def read_all(json_path: Path, class_list: list[str]) -> dict[str, ImageAnnotation]:
@@ -50,9 +50,27 @@ class CocoIO:
             cat_name = cat_map.get(ann["category_id"], "unknown")
             bbox = ann.get("bbox", [0, 0, 0, 0])  # COCO: [x, y, width, height]
             x, y, w, h = bbox[0], bbox[1], bbox[2], bbox[3]
+
+            # Check for polygon segmentation
+            segmentation = ann.get("segmentation", [])
+            if segmentation and isinstance(segmentation, list) and len(segmentation) > 0:
+                flat = segmentation[0]
+                if isinstance(flat, list) and len(flat) >= 6:
+                    # Parse flat [x1, y1, x2, y2, ...] into [[x, y], ...]
+                    points = [[flat[i], flat[i + 1]] for i in range(0, len(flat), 2)]
+                    result[fname].boxes.append(BoundingBox(
+                        class_name=cat_name,
+                        xmin=x, ymin=y, xmax=x + w, ymax=y + h,
+                        annotation_type="polygon",
+                        points=points,
+                    ))
+                    continue
+
+            # Bbox annotation
             result[fname].boxes.append(BoundingBox(
                 class_name=cat_name,
                 xmin=x, ymin=y, xmax=x + w, ymax=y + h,
+                annotation_type="bbox",
             ))
 
         # Update class_list with any classes found in the file
@@ -92,7 +110,6 @@ class CocoIO:
             for box in annotation.boxes:
                 cat_id = class_to_id.get(box.class_name, 0)
                 if cat_id == 0:
-                    # Add unknown class
                     new_id = len(categories) + 1
                     categories.append({"id": new_id, "name": box.class_name, "supercategory": ""})
                     class_to_id[box.class_name] = new_id
@@ -100,14 +117,26 @@ class CocoIO:
 
                 w = box.xmax - box.xmin
                 h = box.ymax - box.ymin
-                coco_anns.append({
+
+                coco_ann = {
                     "id": ann_id,
                     "image_id": img_id,
                     "category_id": cat_id,
                     "bbox": [round(box.xmin, 2), round(box.ymin, 2), round(w, 2), round(h, 2)],
                     "area": round(w * h, 2),
                     "iscrowd": 0,
-                })
+                }
+
+                # Add polygon segmentation if present
+                if box.annotation_type == "polygon" and box.points:
+                    flat = []
+                    for pt in box.points:
+                        flat.extend([round(pt[0], 2), round(pt[1], 2)])
+                    coco_ann["segmentation"] = [flat]
+                else:
+                    coco_ann["segmentation"] = []
+
+                coco_anns.append(coco_ann)
                 ann_id += 1
 
         coco_data = {

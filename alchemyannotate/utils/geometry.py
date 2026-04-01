@@ -45,3 +45,39 @@ def qrectf_to_coords(rect: QRectF) -> tuple[float, float, float, float]:
     x1, y1 = rect.left(), rect.top()
     x2, y2 = rect.right(), rect.bottom()
     return min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)
+
+
+# -- Polygon helpers --
+
+
+def polygon_bounding_rect(
+    points: list[list[float]],
+) -> tuple[float, float, float, float]:
+    """Compute (xmin, ymin, xmax, ymax) bounding rect from polygon points."""
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def normalize_points(
+    points: list[list[float]], img_w: int, img_h: int
+) -> list[list[float]]:
+    """Normalize polygon points to 0-1 range for YOLO-seg export."""
+    return [[p[0] / img_w, p[1] / img_h] for p in points]
+
+
+def denormalize_points(
+    points: list[list[float]], img_w: int, img_h: int
+) -> list[list[float]]:
+    """Denormalize polygon points from 0-1 range to absolute pixels."""
+    return [[p[0] * img_w, p[1] * img_h] for p in points]
+
+
+def clamp_points_to_image(
+    points: list[list[float]], img_w: int, img_h: int
+) -> list[list[float]]:
+    """Clamp polygon points to image bounds."""
+    return [
+        [max(0.0, min(p[0], float(img_w))), max(0.0, min(p[1], float(img_h)))]
+        for p in points
+    ]

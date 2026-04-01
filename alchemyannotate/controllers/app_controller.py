@@ -67,6 +67,7 @@ class AppController:
         mw.prev_image_requested.connect(self._nav_ctrl.go_prev)
         mw.next_image_requested.connect(self._nav_ctrl.go_next)
         mw.draw_mode_toggled.connect(self._on_draw_mode_toggled)
+        mw.polygon_mode_toggled.connect(self._on_polygon_mode_toggled)
         mw.edit_class_requested.connect(self._on_edit_class_requested)
 
         # Sidebar
@@ -80,6 +81,7 @@ class AppController:
         self._canvas_ctrl.box_deleted.connect(self._on_box_modified)
         self._canvas_ctrl.selection_changed.connect(self._on_selection_changed)
         self._canvas_ctrl.class_prompt_needed.connect(self._on_class_prompt_needed)
+        self._canvas_ctrl.polygon_class_prompt_needed.connect(self._on_polygon_class_prompt_needed)
 
         # Class panel
         mw.class_panel.class_added.connect(self._on_class_added)
@@ -303,6 +305,32 @@ class AppController:
 
     def _on_draw_mode_toggled(self, enabled: bool) -> None:
         self.main_window.canvas.set_draw_enabled(enabled)
+        if enabled:
+            self._canvas_ctrl.set_annotation_mode("bbox")
+
+    def _on_polygon_mode_toggled(self, enabled: bool) -> None:
+        self.main_window.canvas.set_draw_enabled(enabled)
+        if enabled:
+            self._canvas_ctrl.set_annotation_mode("polygon")
+
+    def _on_polygon_class_prompt_needed(self, points) -> None:
+        """Prompt user to select a class for a drawn polygon."""
+        from alchemyannotate.views.dialogs import ClassSelectDialog
+
+        active = self._canvas_ctrl._active_class or self._project_config.recently_used_class
+        dialog = ClassSelectDialog(self._class_registry.classes, active, self.main_window)
+        if dialog.exec() != ClassSelectDialog.DialogCode.Accepted:
+            return
+
+        name = dialog.selected_class
+        if dialog.is_new_class and not self._class_registry.has_class(name):
+            self._class_registry.add_class(name)
+            self._refresh_class_panel()
+            self._update_project_classes()
+
+        self._canvas_ctrl.set_active_class(name)
+        self._project_config.recently_used_class = name
+        self._canvas_ctrl.create_polygon(points, name)
 
     def _on_class_prompt_needed(self, rect) -> None:
         """Prompt user to select an existing class or create a new one."""
