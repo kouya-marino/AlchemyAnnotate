@@ -42,71 +42,32 @@ JPG, JPEG, PNG, BMP, TIFF, WEBP
 
 ## Installation
 
-### Prerequisites
+### Install from PyPI (recommended)
+
+```bash
+pip install alchemyannotate
+```
+
+### Install from source
+
+```bash
+git clone https://github.com/kouya-marino/AlchemyAnnotate.git
+cd AlchemyAnnotate
+pip install .
+```
+
+### Development install
+
+```bash
+git clone https://github.com/kouya-marino/AlchemyAnnotate.git
+cd AlchemyAnnotate
+pip install -e ".[dev]"
+```
+
+### Requirements
 
 - Python 3.10 or higher
-- pip
-
-### Step 1: Clone the Repository
-
-```bash
-git clone https://github.com/yourusername/AlchemyAnnotate.git
-cd AlchemyAnnotate
-```
-
-### Step 2: Create a Virtual Environment
-
-Using pyenv (recommended):
-
-```bash
-pyenv install 3.10.6
-pyenv local 3.10.6
-python -m venv alchemyAnnotate_env
-```
-
-Or using standard venv:
-
-```bash
-python -m venv alchemyAnnotate_env
-```
-
-### Step 3: Activate the Environment
-
-Linux / macOS:
-
-```bash
-source alchemyAnnotate_env/bin/activate
-```
-
-Windows (Git Bash):
-
-```bash
-source alchemyAnnotate_env/Scripts/activate
-```
-
-Windows (CMD):
-
-```cmd
-alchemyAnnotate_env\Scripts\activate
-```
-
-Windows (PowerShell):
-
-```powershell
-alchemyAnnotate_env\Scripts\Activate.ps1
-```
-
-### Step 4: Install Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-Or install as a package:
-
-```bash
-pip install -e .
-```
+- PySide6 (installed automatically)
 
 ---
 
@@ -230,7 +191,7 @@ Inside your image folder, in a subfolder named after the format:
 
 ### Does it support polygons or segmentation masks?
 
-Not in v1. AlchemyAnnotate currently supports bounding box annotations only. Polygon and segmentation support may be added in future versions.
+Yes. AlchemyAnnotate supports both bounding box and polygon annotations. Polygons export as COCO segmentation fields and YOLOv8-seg format. Note: Pascal VOC does not support polygons — a warning is shown when switching to VOC if polygon data exists.
 
 ---
 

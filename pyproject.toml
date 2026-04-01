@@ -1,12 +1,36 @@
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "alchemyannotate"
-version = "0.1.0"
-description = "Lightweight bounding box image annotation tool"
+version = "1.2.0"
+description = "Lightweight desktop image annotation tool for bounding box and polygon labeling with YOLO, Pascal VOC, and COCO export"
+readme = "README.md"
+license = "MIT"
 requires-python = ">=3.10"
+authors = [
+    {name = "Prashant Rawat"},
+]
+keywords = [
+    "annotation", "bounding-box", "polygon", "yolo", "pascal-voc", "coco",
+    "object-detection", "image-annotation", "labeling", "computer-vision",
+    "dataset", "machine-learning", "deep-learning",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+    "Topic :: Multimedia :: Graphics :: Editors",
+]
 dependencies = [
     "PySide6>=6.6,<7.0",
 ]
@@ -17,5 +41,19 @@ dev = ["pytest>=7.0", "pytest-qt>=4.0"]
 [project.scripts]
 alchemyannotate = "alchemyannotate.app:main"
 
+[project.gui-scripts]
+alchemyannotate-gui = "alchemyannotate.app:main"
+
+[project.urls]
+Homepage = "https://github.com/kouya-marino/AlchemyAnnotate"
+Repository = "https://github.com/kouya-marino/AlchemyAnnotate"
+Issues = "https://github.com/kouya-marino/AlchemyAnnotate/issues"
+
 [tool.setuptools.packages.find]
 include = ["alchemyannotate*"]
+
+[tool.setuptools.package-data]
+alchemyannotate = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
