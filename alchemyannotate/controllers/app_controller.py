@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QRectF
-from PySide6.QtWidgets import QFileDialog
+from PySide6.QtWidgets import QFileDialog, QInputDialog
 
 from alchemyannotate.controllers.canvas_controller import CanvasController
 from alchemyannotate.controllers.navigation_controller import NavigationController
@@ -66,6 +66,8 @@ class AppController:
         mw.fit_to_window_requested.connect(mw.canvas.fit_to_window)
         mw.prev_image_requested.connect(self._nav_ctrl.go_prev)
         mw.next_image_requested.connect(self._nav_ctrl.go_next)
+        mw.draw_mode_toggled.connect(self._on_draw_mode_toggled)
+        mw.edit_class_requested.connect(self._on_edit_class_requested)
 
         # Sidebar
         mw.sidebar.image_selected.connect(self._on_sidebar_image_selected)
@@ -77,6 +79,7 @@ class AppController:
         self._canvas_ctrl.box_created.connect(self._on_box_modified)
         self._canvas_ctrl.box_deleted.connect(self._on_box_modified)
         self._canvas_ctrl.selection_changed.connect(self._on_selection_changed)
+        self._canvas_ctrl.class_prompt_needed.connect(self._on_class_prompt_needed)
 
         # Class panel
         mw.class_panel.class_added.connect(self._on_class_added)
@@ -295,6 +298,66 @@ class AppController:
     def _on_active_class_changed(self, name: str) -> None:
         self._canvas_ctrl.set_active_class(name)
         self._project_config.recently_used_class = name
+
+    # -- Toolbar actions --
+
+    def _on_draw_mode_toggled(self, enabled: bool) -> None:
+        self.main_window.canvas.set_draw_enabled(enabled)
+
+    def _on_class_prompt_needed(self, rect) -> None:
+        """Prompt user to select an existing class or create a new one."""
+        from PySide6.QtCore import QRectF
+        from alchemyannotate.views.dialogs import ClassSelectDialog
+
+        active = self._canvas_ctrl._active_class or self._project_config.recently_used_class
+        dialog = ClassSelectDialog(self._class_registry.classes, active, self.main_window)
+        if dialog.exec() != ClassSelectDialog.DialogCode.Accepted:
+            return
+
+        name = dialog.selected_class
+        if dialog.is_new_class and not self._class_registry.has_class(name):
+            self._class_registry.add_class(name)
+            self._refresh_class_panel()
+            self._update_project_classes()
+
+        # Set as active class so subsequent boxes use it automatically
+        self._canvas_ctrl.set_active_class(name)
+        self._project_config.recently_used_class = name
+        self._canvas_ctrl.create_box(QRectF(rect), name)
+
+    def _on_edit_class_requested(self) -> None:
+        box_id = self._canvas_ctrl.selected_box_id
+        if not box_id:
+            self.main_window.show_status_message("No box selected")
+            return
+
+        classes = self._class_registry.classes
+        if not classes:
+            self.main_window.show_status_message("No classes defined")
+            return
+
+        current_class = ""
+        filename = self._nav_ctrl.current_filename
+        if filename:
+            ann = self._annotation_store.get(filename)
+            if ann:
+                for box in ann.boxes:
+                    if box.id == box_id:
+                        current_class = box.class_name
+                        break
+
+        current_idx = classes.index(current_class) if current_class in classes else 0
+        new_class, ok = QInputDialog.getItem(
+            self.main_window,
+            "Edit Class",
+            "Select class for this box:",
+            classes,
+            current_idx,
+            False,
+        )
+        if ok and new_class:
+            self._canvas_ctrl.change_box_class(box_id, new_class)
+            self._refresh_box_list()
 
     # -- Format --
 

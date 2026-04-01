@@ -26,6 +26,7 @@ class CanvasController(QObject):
     box_created = Signal(str)   # box_id
     box_deleted = Signal(str)   # box_id
     selection_changed = Signal(str)  # box_id or ""
+    class_prompt_needed = Signal(QRectF)  # emitted when a box is drawn without an active class
 
     def __init__(
         self,
@@ -106,7 +107,8 @@ class CanvasController(QObject):
                 self._canvas.update_box_color(box_id, color)
                 break
 
-    def _on_box_drawn(self, rect: QRectF) -> None:
+    def create_box(self, rect: QRectF, class_name: str) -> None:
+        """Create a bounding box with the given class name and rect."""
         if not self._current_filename:
             return
 
@@ -115,8 +117,6 @@ class CanvasController(QObject):
             return
 
         xmin, ymin, xmax, ymax = qrectf_to_coords(rect)
-        class_name = self._active_class or (self._registry.classes[0] if self._registry.classes else "object")
-
         box = BoundingBox(
             class_name=class_name,
             xmin=xmin, ymin=ymin, xmax=xmax, ymax=ymax,
@@ -135,6 +135,12 @@ class CanvasController(QObject):
         self._canvas.highlight_box(box.id)
         self.box_created.emit(box.id)
         self.selection_changed.emit(box.id)
+
+    def _on_box_drawn(self, rect: QRectF) -> None:
+        if not self._current_filename:
+            return
+        # Always prompt user to select or create a class
+        self.class_prompt_needed.emit(rect)
 
     def _on_box_selected(self, box_id: str) -> None:
         self._selected_box_id = box_id

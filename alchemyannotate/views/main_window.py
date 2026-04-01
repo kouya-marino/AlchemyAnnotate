@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtCore import Qt, Signal, QSize
+from PySide6.QtGui import QAction, QKeySequence, QIcon, QPixmap, QPainter, QColor, QPen
 from PySide6.QtWidgets import (
     QMainWindow,
     QDockWidget,
@@ -12,6 +12,8 @@ from PySide6.QtWidgets import (
     QComboBox,
     QStatusBar,
     QMenuBar,
+    QToolBar,
+    QInputDialog,
 )
 
 from alchemyannotate.views.canvas import AnnotationCanvas
@@ -19,6 +21,43 @@ from alchemyannotate.views.sidebar import ImageSidebar
 from alchemyannotate.views.class_panel import ClassPanel
 from alchemyannotate.views.box_list_panel import BoxListPanel
 from alchemyannotate.utils.constants import AnnotationFormat
+
+
+def _make_icon_draw() -> QIcon:
+    """Create a draw-box icon (rectangle outline)."""
+    pm = QPixmap(24, 24)
+    pm.fill(QColor("transparent"))
+    p = QPainter(pm)
+    p.setPen(QPen(QColor("#4363d8"), 2))
+    p.drawRect(4, 4, 16, 16)
+    p.end()
+    return QIcon(pm)
+
+
+def _make_icon_delete() -> QIcon:
+    """Create a delete icon (X mark)."""
+    pm = QPixmap(24, 24)
+    pm.fill(QColor("transparent"))
+    p = QPainter(pm)
+    p.setPen(QPen(QColor("#e6194b"), 2))
+    p.drawLine(5, 5, 19, 19)
+    p.drawLine(19, 5, 5, 19)
+    p.end()
+    return QIcon(pm)
+
+
+def _make_icon_edit() -> QIcon:
+    """Create an edit icon (pencil shape)."""
+    pm = QPixmap(24, 24)
+    pm.fill(QColor("transparent"))
+    p = QPainter(pm)
+    p.setPen(QPen(QColor("#3cb44b"), 2))
+    p.drawLine(4, 20, 18, 6)
+    p.drawLine(18, 6, 20, 4)
+    p.drawLine(4, 20, 6, 18)
+    p.drawLine(4, 20, 2, 22)
+    p.end()
+    return QIcon(pm)
 
 
 class MainWindow(QMainWindow):
@@ -33,6 +72,8 @@ class MainWindow(QMainWindow):
     fit_to_window_requested = Signal()
     prev_image_requested = Signal()
     next_image_requested = Signal()
+    draw_mode_toggled = Signal(bool)        # True = draw mode on
+    edit_class_requested = Signal()          # edit class of selected box
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -86,6 +127,7 @@ class MainWindow(QMainWindow):
         self._status_bar.addPermanentWidget(self._format_combo)
 
         self._setup_menus()
+        self._setup_toolbar()
         self._setup_shortcuts()
 
     def _setup_menus(self) -> None:
@@ -144,8 +186,50 @@ class MainWindow(QMainWindow):
         next_action.triggered.connect(self.next_image_requested.emit)
         nav_menu.addAction(next_action)
 
+    def _setup_toolbar(self) -> None:
+        toolbar = QToolBar("Annotation Tools")
+        toolbar.setIconSize(QSize(24, 24))
+        toolbar.setMovable(False)
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
+
+        # Draw Box (toggle)
+        self._draw_action = QAction(_make_icon_draw(), "Draw Box", self)
+        self._draw_action.setCheckable(True)
+        self._draw_action.setChecked(True)
+        self._draw_action.setToolTip("Draw bounding box (left-click drag on image)")
+        self._draw_action.setShortcut(QKeySequence("B"))
+        self._draw_action.toggled.connect(self._on_draw_toggled)
+        toolbar.addAction(self._draw_action)
+
+        toolbar.addSeparator()
+
+        # Delete Box
+        self._delete_action = QAction(_make_icon_delete(), "Delete Box", self)
+        self._delete_action.setToolTip("Delete selected box (Del)")
+        self._delete_action.setShortcut(QKeySequence("Delete"))
+        self._delete_action.triggered.connect(self.delete_box_requested.emit)
+        toolbar.addAction(self._delete_action)
+
+        toolbar.addSeparator()
+
+        # Edit Class
+        self._edit_class_action = QAction(_make_icon_edit(), "Edit Class", self)
+        self._edit_class_action.setToolTip("Change class of selected box (E)")
+        self._edit_class_action.setShortcut(QKeySequence("E"))
+        self._edit_class_action.triggered.connect(self.edit_class_requested.emit)
+        toolbar.addAction(self._edit_class_action)
+
+    def _on_draw_toggled(self, checked: bool) -> None:
+        self.draw_mode_toggled.emit(checked)
+
+    def set_draw_mode(self, enabled: bool) -> None:
+        """Update the draw action state without emitting signal."""
+        self._draw_action.blockSignals(True)
+        self._draw_action.setChecked(enabled)
+        self._draw_action.blockSignals(False)
+
     def _setup_shortcuts(self) -> None:
-        pass  # Shortcuts are set via menu actions above
+        pass  # Shortcuts are set via menu actions and toolbar above
 
     def _on_format_changed(self, index: int) -> None:
         fmt = self._format_combo.itemData(index)

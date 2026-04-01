@@ -11,6 +11,8 @@ from PySide6.QtWidgets import (
     QRadioButton,
     QButtonGroup,
     QDialogButtonBox,
+    QComboBox,
+    QLineEdit,
 )
 
 
@@ -110,4 +112,68 @@ class AnnotationDetectedDialog(QDialog):
             self.choice = AnnotationDetectedChoice.CREATE_NEW
         else:
             self.choice = AnnotationDetectedChoice.CANCEL
+        super().accept()
+
+
+class ClassSelectDialog(QDialog):
+    """Dialog to select an existing class or create a new one when drawing a box."""
+
+    def __init__(self, existing_classes: list[str], default_class: str = "", parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Select Class")
+        self.setMinimumWidth(350)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Assign a class to this bounding box:"))
+
+        # Existing class dropdown
+        self._combo = QComboBox()
+        if existing_classes:
+            self._combo.addItems(existing_classes)
+            if default_class and default_class in existing_classes:
+                self._combo.setCurrentText(default_class)
+            combo_row = QHBoxLayout()
+            combo_row.addWidget(QLabel("Existing class:"))
+            combo_row.addWidget(self._combo, stretch=1)
+            layout.addLayout(combo_row)
+
+        # Separator label
+        layout.addWidget(QLabel("— or create a new class —"))
+
+        # New class input
+        new_row = QHBoxLayout()
+        new_row.addWidget(QLabel("New class:"))
+        self._new_input = QLineEdit()
+        self._new_input.setPlaceholderText("Type new class name...")
+        new_row.addWidget(self._new_input, stretch=1)
+        layout.addLayout(new_row)
+
+        # Buttons
+        btn_row = QHBoxLayout()
+        self._ok_btn = QPushButton("OK")
+        self._ok_btn.setDefault(True)
+        self._ok_btn.clicked.connect(self.accept)
+        self._cancel_btn = QPushButton("Cancel")
+        self._cancel_btn.clicked.connect(self.reject)
+        btn_row.addStretch()
+        btn_row.addWidget(self._ok_btn)
+        btn_row.addWidget(self._cancel_btn)
+        layout.addLayout(btn_row)
+
+        self._new_input.returnPressed.connect(self.accept)
+
+        self.selected_class: str = ""
+        self.is_new_class: bool = False
+
+    def accept(self) -> None:
+        new_text = self._new_input.text().strip()
+        if new_text:
+            self.selected_class = new_text
+            self.is_new_class = True
+        elif self._combo.count() > 0:
+            self.selected_class = self._combo.currentText()
+            self.is_new_class = False
+        else:
+            # Nothing selected and nothing typed
+            return
         super().accept()

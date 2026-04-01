@@ -60,6 +60,7 @@ class AnnotationCanvas(QGraphicsView):
         self._box_items: dict[str, BoxRectItem] = {}
 
         # Drawing state
+        self._draw_enabled = True
         self._drawing = False
         self._draw_start: QPointF | None = None
         self._draw_rect_item: QGraphicsRectItem | None = None
@@ -123,6 +124,9 @@ class AnnotationCanvas(QGraphicsView):
     def set_draw_color(self, color: QColor) -> None:
         self._draw_color = color
 
+    def set_draw_enabled(self, enabled: bool) -> None:
+        self._draw_enabled = enabled
+
     # -- Mouse events --
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
@@ -144,8 +148,8 @@ class AnnotationCanvas(QGraphicsView):
                     event.accept()
                     return
 
-            # Start drawing if on the image
-            if self._pixmap_item and self._pixmap_item.contains(scene_pos):
+            # Start drawing if on the image and draw mode is on
+            if self._draw_enabled and self._pixmap_item and self._pixmap_item.contains(scene_pos):
                 self._drawing = True
                 self._draw_start = scene_pos
                 pen = QPen(self._draw_color, 2, Qt.PenStyle.DashLine)
