@@ -1,4 +1,6 @@
 alchemyAnnotate_env/
+alchemyannotate_project.json
+magic.jpg
 __pycache__/
 *.pyc
 *.pyo
