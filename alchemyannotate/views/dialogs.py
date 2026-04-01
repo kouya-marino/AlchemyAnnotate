@@ -168,12 +168,18 @@ class ClassSelectDialog(QDialog):
     def accept(self) -> None:
         new_text = self._new_input.text().strip()
         if new_text:
+            if not all(c.isalnum() or c in (' ', '-', '_') for c in new_text):
+                from PySide6.QtWidgets import QMessageBox
+                QMessageBox.warning(
+                    self, "Invalid Name",
+                    "Class name can only contain letters, numbers, spaces, hyphens, and underscores.",
+                )
+                return
             self.selected_class = new_text
             self.is_new_class = True
         elif self._combo.count() > 0:
             self.selected_class = self._combo.currentText()
             self.is_new_class = False
         else:
-            # Nothing selected and nothing typed
             return
         super().accept()

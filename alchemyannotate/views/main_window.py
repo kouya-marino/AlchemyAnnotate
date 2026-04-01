@@ -1,7 +1,10 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal, QSize
-from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QIcon, QPixmap, QPainter, QColor, QPen
+from PySide6.QtCore import Qt, Signal, QSize, QMimeData
+from PySide6.QtGui import (
+    QAction, QActionGroup, QKeySequence, QIcon, QPixmap, QPainter,
+    QColor, QPen, QPalette, QDragEnterEvent, QDropEvent,
+)
 from PySide6.QtWidgets import (
     QMainWindow,
     QDockWidget,
@@ -14,6 +17,7 @@ from PySide6.QtWidgets import (
     QMenuBar,
     QToolBar,
     QInputDialog,
+    QApplication,
 )
 
 from alchemyannotate.views.canvas import AnnotationCanvas
@@ -24,7 +28,6 @@ from alchemyannotate.utils.constants import AnnotationFormat
 
 
 def _make_icon_draw() -> QIcon:
-    """Create a draw-box icon (rectangle outline)."""
     pm = QPixmap(24, 24)
     pm.fill(QColor("transparent"))
     p = QPainter(pm)
@@ -35,7 +38,6 @@ def _make_icon_draw() -> QIcon:
 
 
 def _make_icon_delete() -> QIcon:
-    """Create a delete icon (X mark)."""
     pm = QPixmap(24, 24)
     pm.fill(QColor("transparent"))
     p = QPainter(pm)
@@ -47,7 +49,6 @@ def _make_icon_delete() -> QIcon:
 
 
 def _make_icon_edit() -> QIcon:
-    """Create an edit icon (pencil shape)."""
     pm = QPixmap(24, 24)
     pm.fill(QColor("transparent"))
     p = QPainter(pm)
@@ -61,7 +62,6 @@ def _make_icon_edit() -> QIcon:
 
 
 def _make_icon_polygon() -> QIcon:
-    """Create a polygon icon (triangle shape)."""
     pm = QPixmap(24, 24)
     pm.fill(QColor("transparent"))
     p = QPainter(pm)
@@ -80,19 +80,29 @@ class MainWindow(QMainWindow):
     open_folder_requested = Signal()
     save_requested = Signal()
     export_all_requested = Signal()
-    format_changed = Signal(str)  # new format string
+    format_changed = Signal(str)
     delete_box_requested = Signal()
     fit_to_window_requested = Signal()
     prev_image_requested = Signal()
     next_image_requested = Signal()
-    draw_mode_toggled = Signal(bool)        # True = draw mode on
-    polygon_mode_toggled = Signal(bool)     # True = polygon draw mode on
-    edit_class_requested = Signal()          # edit class of selected box
+    draw_mode_toggled = Signal(bool)
+    polygon_mode_toggled = Signal(bool)
+    edit_class_requested = Signal()
+    undo_requested = Signal()
+    redo_requested = Signal()
+    copy_requested = Signal()
+    paste_requested = Signal()
+    labels_toggled = Signal(bool)
+    show_stats_requested = Signal()
+    folder_dropped = Signal(str)           # folder path from drag-drop
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("AlchemyAnnotate")
         self.setMinimumSize(1000, 700)
+
+        # Accept drag-and-drop
+        self.setAcceptDrops(True)
 
         # Central canvas
         self.canvas = AnnotationCanvas()
@@ -126,6 +136,9 @@ class MainWindow(QMainWindow):
         self._index_label = QLabel("No images loaded")
         self._status_bar.addWidget(self._index_label)
 
+        self._zoom_label = QLabel("100%")
+        self._status_bar.addPermanentWidget(self._zoom_label)
+
         self._format_label = QLabel()
         self._status_bar.addPermanentWidget(self._format_label)
 
@@ -139,6 +152,12 @@ class MainWindow(QMainWindow):
         self._format_combo.currentIndexChanged.connect(self._on_format_changed)
         self._status_bar.addPermanentWidget(QLabel("Format:"))
         self._status_bar.addPermanentWidget(self._format_combo)
+
+        # Connect zoom signal
+        self.canvas.zoom_changed.connect(self._on_zoom_changed)
+
+        # Dark theme state
+        self._dark_theme = False
 
         self._setup_menus()
         self._setup_toolbar()
@@ -174,7 +193,31 @@ class MainWindow(QMainWindow):
         # Edit menu
         edit_menu = menubar.addMenu("&Edit")
 
-        delete_action = QAction("&Delete Box", self)
+        self._undo_action = QAction("&Undo", self)
+        self._undo_action.setShortcut(QKeySequence("Ctrl+Z"))
+        self._undo_action.triggered.connect(self.undo_requested.emit)
+        edit_menu.addAction(self._undo_action)
+
+        self._redo_action = QAction("&Redo", self)
+        self._redo_action.setShortcut(QKeySequence("Ctrl+Shift+Z"))
+        self._redo_action.triggered.connect(self.redo_requested.emit)
+        edit_menu.addAction(self._redo_action)
+
+        edit_menu.addSeparator()
+
+        copy_action = QAction("&Copy Annotation", self)
+        copy_action.setShortcut(QKeySequence("Ctrl+C"))
+        copy_action.triggered.connect(self.copy_requested.emit)
+        edit_menu.addAction(copy_action)
+
+        paste_action = QAction("&Paste Annotation", self)
+        paste_action.setShortcut(QKeySequence("Ctrl+V"))
+        paste_action.triggered.connect(self.paste_requested.emit)
+        edit_menu.addAction(paste_action)
+
+        edit_menu.addSeparator()
+
+        delete_action = QAction("&Delete Annotation", self)
         delete_action.setShortcut(QKeySequence("Delete"))
         delete_action.triggered.connect(self.delete_box_requested.emit)
         edit_menu.addAction(delete_action)
@@ -186,6 +229,25 @@ class MainWindow(QMainWindow):
         fit_action.setShortcut(QKeySequence("Ctrl+0"))
         fit_action.triggered.connect(self.fit_to_window_requested.emit)
         view_menu.addAction(fit_action)
+
+        self._labels_action = QAction("Show &Labels", self)
+        self._labels_action.setCheckable(True)
+        self._labels_action.setShortcut(QKeySequence("L"))
+        self._labels_action.toggled.connect(self.labels_toggled.emit)
+        view_menu.addAction(self._labels_action)
+
+        view_menu.addSeparator()
+
+        self._dark_action = QAction("&Dark Theme", self)
+        self._dark_action.setCheckable(True)
+        self._dark_action.toggled.connect(self._toggle_dark_theme)
+        view_menu.addAction(self._dark_action)
+
+        view_menu.addSeparator()
+
+        stats_action = QAction("Annotation &Statistics...", self)
+        stats_action.triggered.connect(self.show_stats_requested.emit)
+        view_menu.addAction(stats_action)
 
         # Navigate menu
         nav_menu = menubar.addMenu("&Navigate")
@@ -200,9 +262,17 @@ class MainWindow(QMainWindow):
         next_action.triggered.connect(self.next_image_requested.emit)
         nav_menu.addAction(next_action)
 
+        # Help menu
+        help_menu = menubar.addMenu("&Help")
+        shortcuts_action = QAction("&Keyboard Shortcuts", self)
+        shortcuts_action.setShortcut(QKeySequence("F1"))
+        shortcuts_action.triggered.connect(self._show_shortcuts_dialog)
+        help_menu.addAction(shortcuts_action)
+
     def _setup_toolbar(self) -> None:
         toolbar = QToolBar("Annotation Tools")
         toolbar.setIconSize(QSize(24, 24))
+        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         toolbar.setMovable(False)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
 
@@ -234,7 +304,6 @@ class MainWindow(QMainWindow):
         # Delete Box
         self._delete_action = QAction(_make_icon_delete(), "Delete", self)
         self._delete_action.setToolTip("Delete selected annotation [Del]")
-        self._delete_action.setShortcut(QKeySequence("Delete"))
         self._delete_action.triggered.connect(self.delete_box_requested.emit)
         toolbar.addAction(self._delete_action)
 
@@ -249,7 +318,6 @@ class MainWindow(QMainWindow):
 
     def _on_draw_toggled(self, checked: bool) -> None:
         if checked:
-            # Turn off polygon mode
             self._polygon_action.blockSignals(True)
             self._polygon_action.setChecked(False)
             self._polygon_action.blockSignals(False)
@@ -257,7 +325,6 @@ class MainWindow(QMainWindow):
 
     def _on_polygon_toggled(self, checked: bool) -> None:
         if checked:
-            # Turn off box draw mode
             self._draw_action.blockSignals(True)
             self._draw_action.setChecked(False)
             self._draw_action.blockSignals(False)
@@ -265,7 +332,6 @@ class MainWindow(QMainWindow):
         self.polygon_mode_toggled.emit(checked)
 
     def set_draw_mode(self, enabled: bool) -> None:
-        """Update the draw action state without emitting signal."""
         self._draw_action.blockSignals(True)
         self._draw_action.setChecked(enabled)
         self._draw_action.blockSignals(False)
@@ -278,6 +344,118 @@ class MainWindow(QMainWindow):
         if fmt:
             self.format_changed.emit(fmt)
 
+    def _on_zoom_changed(self, zoom_pct: float) -> None:
+        self._zoom_label.setText(f"{zoom_pct:.0f}%")
+
+    # -- Dark theme --
+
+    def _toggle_dark_theme(self, enabled: bool) -> None:
+        self._dark_theme = enabled
+        app = QApplication.instance()
+        if enabled:
+            palette = QPalette()
+            dark = QColor(45, 45, 45)
+            mid = QColor(60, 60, 60)
+            text = QColor(220, 220, 220)
+            highlight = QColor(42, 130, 218)
+            palette.setColor(QPalette.ColorRole.Window, dark)
+            palette.setColor(QPalette.ColorRole.WindowText, text)
+            palette.setColor(QPalette.ColorRole.Base, QColor(35, 35, 35))
+            palette.setColor(QPalette.ColorRole.AlternateBase, mid)
+            palette.setColor(QPalette.ColorRole.ToolTipBase, dark)
+            palette.setColor(QPalette.ColorRole.ToolTipText, text)
+            palette.setColor(QPalette.ColorRole.Text, text)
+            palette.setColor(QPalette.ColorRole.Button, mid)
+            palette.setColor(QPalette.ColorRole.ButtonText, text)
+            palette.setColor(QPalette.ColorRole.BrightText, QColor(255, 0, 0))
+            palette.setColor(QPalette.ColorRole.Link, highlight)
+            palette.setColor(QPalette.ColorRole.Highlight, highlight)
+            palette.setColor(QPalette.ColorRole.HighlightedText, QColor(0, 0, 0))
+            app.setPalette(palette)
+        else:
+            app.setPalette(app.style().standardPalette())
+
+    # -- Drag and drop --
+
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event: QDropEvent) -> None:
+        urls = event.mimeData().urls()
+        if urls:
+            from pathlib import Path
+            path = Path(urls[0].toLocalFile())
+            if path.is_dir():
+                self.folder_dropped.emit(str(path))
+            elif path.is_file():
+                # If file dropped, use its parent folder
+                self.folder_dropped.emit(str(path.parent))
+
+    # -- Shortcuts help dialog --
+
+    def _show_shortcuts_dialog(self) -> None:
+        from PySide6.QtWidgets import QDialog, QVBoxLayout, QTextBrowser, QDialogButtonBox
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Keyboard Shortcuts")
+        dlg.setMinimumSize(450, 500)
+        layout = QVBoxLayout(dlg)
+        browser = QTextBrowser()
+        browser.setHtml("""
+        <style>table { border-collapse: collapse; width: 100%; }
+        th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid #555; }
+        th { font-weight: bold; }</style>
+        <h3>Drawing</h3>
+        <table>
+        <tr><td><b>B</b></td><td>Toggle Draw Box mode</td></tr>
+        <tr><td><b>P</b></td><td>Toggle Draw Polygon mode</td></tr>
+        <tr><td><b>Double-click</b></td><td>Close polygon</td></tr>
+        <tr><td><b>Right-click / Esc</b></td><td>Cancel polygon drawing</td></tr>
+        </table>
+        <h3>Editing</h3>
+        <table>
+        <tr><td><b>Delete</b></td><td>Delete selected annotation</td></tr>
+        <tr><td><b>E</b></td><td>Edit class of selected annotation</td></tr>
+        <tr><td><b>Ctrl+Z</b></td><td>Undo</td></tr>
+        <tr><td><b>Ctrl+Shift+Z</b></td><td>Redo</td></tr>
+        <tr><td><b>Ctrl+C</b></td><td>Copy annotation</td></tr>
+        <tr><td><b>Ctrl+V</b></td><td>Paste annotation</td></tr>
+        </table>
+        <h3>Navigation</h3>
+        <table>
+        <tr><td><b>A / Left</b></td><td>Previous image</td></tr>
+        <tr><td><b>D / Right</b></td><td>Next image</td></tr>
+        </table>
+        <h3>View</h3>
+        <table>
+        <tr><td><b>Ctrl+0</b></td><td>Fit image to window</td></tr>
+        <tr><td><b>Ctrl+Scroll</b></td><td>Zoom in/out</td></tr>
+        <tr><td><b>Middle-click drag</b></td><td>Pan</td></tr>
+        <tr><td><b>L</b></td><td>Toggle annotation labels</td></tr>
+        </table>
+        <h3>File</h3>
+        <table>
+        <tr><td><b>Ctrl+O</b></td><td>Open folder</td></tr>
+        <tr><td><b>Ctrl+S</b></td><td>Save</td></tr>
+        <tr><td><b>Ctrl+Q</b></td><td>Quit</td></tr>
+        <tr><td><b>F1</b></td><td>Show this help</td></tr>
+        </table>
+        <h3>Tips</h3>
+        <ul>
+        <li>Drag and drop a folder onto the window to open it</li>
+        <li>Right-click an annotation for context menu (Edit/Copy/Delete)</li>
+        <li>Click a selected box to drag-move it</li>
+        <li>Drag corner/edge handles to resize a box</li>
+        <li>Drag polygon vertex handles to reshape</li>
+        </ul>
+        """)
+        browser.setOpenExternalLinks(False)
+        layout.addWidget(browser)
+        btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        btns.accepted.connect(dlg.accept)
+        layout.addWidget(btns)
+        dlg.exec()
+
     # -- Public update methods --
 
     def update_image_index(self, current: int, total: int) -> None:
@@ -287,7 +465,6 @@ class MainWindow(QMainWindow):
             self._index_label.setText(f"{current + 1} / {total}")
 
     def set_format(self, fmt: str) -> None:
-        """Set the format combo without emitting signal."""
         self._format_combo.blockSignals(True)
         index = self._format_combo.findData(fmt)
         if index >= 0:

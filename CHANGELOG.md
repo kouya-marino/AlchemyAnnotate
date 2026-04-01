@@ -2,6 +2,27 @@
 
 All notable changes to AlchemyAnnotate will be documented in this file.
 
+## [1.2.0] - 2026-04-02
+
+### Added
+- **Resize & move**: drag handles on selected boxes to resize; drag box body to move; polygon vertex dragging
+- **Undo/Redo**: Ctrl+Z / Ctrl+Shift+Z with 50-action history for create, delete, modify operations
+- **Right-click context menu**: Edit Class, Copy, Delete on any annotation
+- **VOC polygon data loss warning**: warns before switching to VOC format when polygons exist
+- **Copy/Paste annotations**: Ctrl+C / Ctrl+V with 15px offset on paste; works across images
+- **Annotation statistics**: View > Statistics shows per-class counts, bbox/polygon breakdown
+- **Drag-and-drop**: drop a folder (or file) onto the window to open it
+- **Dark theme**: View > Dark Theme toggle with full QPalette dark mode
+- **Zoom indicator**: current zoom percentage shown in status bar
+- **Class name validation**: only allows letters, numbers, spaces, hyphens, underscores
+- **Annotation labels on canvas**: View > Show Labels (L) overlays class names on each annotation
+- **Keyboard shortcut help**: Help > Keyboard Shortcuts (F1) with full reference table
+
+### Changed
+- Edit menu reorganized with Undo, Redo, Copy, Paste, Delete sections
+- Status bar now shows zoom percentage
+- Class addition rejects empty/whitespace-only names
+
 ## [1.1.0] - 2026-04-01
 
 ### Added

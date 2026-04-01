@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QRectF
-from PySide6.QtWidgets import QFileDialog, QInputDialog
+from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox, QProgressDialog
 
 from alchemyannotate.controllers.canvas_controller import CanvasController
 from alchemyannotate.controllers.navigation_controller import NavigationController
@@ -70,6 +70,21 @@ class AppController:
         mw.polygon_mode_toggled.connect(self._on_polygon_mode_toggled)
         mw.edit_class_requested.connect(self._on_edit_class_requested)
 
+        # Undo/Redo/Copy/Paste
+        mw.undo_requested.connect(self._on_undo)
+        mw.redo_requested.connect(self._on_redo)
+        mw.copy_requested.connect(self._canvas_ctrl.copy_selected)
+        mw.paste_requested.connect(self._on_paste)
+
+        # Labels toggle
+        mw.labels_toggled.connect(self._on_labels_toggled)
+
+        # Statistics
+        mw.show_stats_requested.connect(self._on_show_stats)
+
+        # Drag-and-drop
+        mw.folder_dropped.connect(self._on_folder_dropped)
+
         # Sidebar
         mw.sidebar.image_selected.connect(self._on_sidebar_image_selected)
 
@@ -79,6 +94,7 @@ class AppController:
         # Canvas controller
         self._canvas_ctrl.box_created.connect(self._on_box_modified)
         self._canvas_ctrl.box_deleted.connect(self._on_box_modified)
+        self._canvas_ctrl.box_modified.connect(self._on_box_modified)
         self._canvas_ctrl.selection_changed.connect(self._on_selection_changed)
         self._canvas_ctrl.class_prompt_needed.connect(self._on_class_prompt_needed)
         self._canvas_ctrl.polygon_class_prompt_needed.connect(self._on_polygon_class_prompt_needed)
@@ -102,6 +118,9 @@ class AppController:
         if not folder:
             return
         self._open_folder(Path(folder))
+
+    def _on_folder_dropped(self, folder_str: str) -> None:
+        self._open_folder(Path(folder_str))
 
     def _open_folder(self, folder: Path) -> None:
         # Load project config if it exists
@@ -175,7 +194,6 @@ class AppController:
             return
 
         if dialog.choice == AnnotationDetectedChoice.LOAD_EXISTING:
-            # Use the first detected format, or the project config format if available
             load_fmt = None
             project_fmt = AnnotationFormat(self._project_config.annotation_format)
             if project_fmt in existing_formats:
@@ -186,14 +204,12 @@ class AppController:
             self._io_router.format = load_fmt
             self.main_window.set_format(load_fmt.value)
 
-            # Get image sizes for YOLO loading
             image_sizes = {}
             for fname in images:
                 image_sizes[fname] = self._image_loader.get_image_size(fname)
 
             class_list = self._class_registry.classes
 
-            # Try to load classes.txt for YOLO
             if load_fmt == AnnotationFormat.YOLO:
                 from alchemyannotate.services.io_yolo import YoloIO
                 yolo_folder = folder / "annotations_yolo"
@@ -207,7 +223,6 @@ class AppController:
                 self._annotation_store.set(fname, ann)
                 self._annotation_store.mark_clean(fname)
 
-            # Update class registry with any new classes found
             for ann in all_anns.values():
                 for box in ann.boxes:
                     if not self._class_registry.has_class(box.class_name):
@@ -219,22 +234,18 @@ class AppController:
         self._nav_ctrl.go_to_image(filename)
 
     def _on_image_changed(self, filename: str) -> None:
-        # Load pixmap
         pixmap = self._image_loader.load_pixmap(filename)
         if not pixmap:
             return
 
-        # Set up canvas
         self.main_window.canvas.set_image(pixmap)
 
-        # Ensure annotation exists with correct dimensions
         img_w, img_h = pixmap.width(), pixmap.height()
         ann = self._annotation_store.get_or_create(filename, img_w, img_h)
         if ann.image_width == 0:
             ann.image_width = img_w
             ann.image_height = img_h
 
-        # If no annotations in store, try loading from disk
         if not ann.boxes and self._io_router:
             loaded = self._io_router.load_annotation(
                 filename, img_w, img_h, self._class_registry.classes
@@ -244,20 +255,16 @@ class AppController:
                 ann.image_width = loaded.image_width or img_w
                 ann.image_height = loaded.image_height or img_h
                 self._annotation_store.mark_clean(filename)
-                # Update class registry
                 for box in loaded.boxes:
                     if not self._class_registry.has_class(box.class_name):
                         self._class_registry.add_class(box.class_name)
                 self._refresh_class_panel()
 
-        # Tell canvas controller about current image
         self._canvas_ctrl.set_current_image(filename)
         self._canvas_ctrl.render_boxes(filename)
-
-        # Update box list
         self._refresh_box_list()
+        self._refresh_labels()
 
-        # Update project config
         self._project_config.last_opened_image = filename
         self._save_project_config()
 
@@ -265,6 +272,7 @@ class AppController:
 
     def _on_box_modified(self, _box_id: str) -> None:
         self._refresh_box_list()
+        self._refresh_labels()
         self._update_current_sidebar_status()
 
     def _on_selection_changed(self, box_id: str) -> None:
@@ -274,17 +282,91 @@ class AppController:
         self.main_window.canvas.highlight_box(box_id)
 
     def _on_box_delete_from_list(self, box_id: str) -> None:
-        # Temporarily select the box, then delete
         self._canvas_ctrl._selected_box_id = box_id
         self._canvas_ctrl.delete_selected()
 
     def _on_box_class_changed(self, box_id: str, new_class: str) -> None:
         self._canvas_ctrl.change_box_class(box_id, new_class)
         self._refresh_box_list()
+        self._refresh_labels()
+
+    # -- Undo/Redo --
+
+    def _on_undo(self) -> None:
+        self._canvas_ctrl.undo()
+
+    def _on_redo(self) -> None:
+        self._canvas_ctrl.redo()
+
+    # -- Copy/Paste --
+
+    def _on_paste(self) -> None:
+        self._canvas_ctrl.paste()
+
+    # -- Labels --
+
+    def _on_labels_toggled(self, visible: bool) -> None:
+        self.main_window.canvas.set_labels_visible(visible)
+        if visible:
+            self._refresh_labels()
+
+    def _refresh_labels(self) -> None:
+        filename = self._nav_ctrl.current_filename
+        if not filename:
+            return
+        ann = self._annotation_store.get(filename)
+        if not ann:
+            return
+        box_labels = {box.id: box.class_name for box in ann.boxes}
+        self.main_window.canvas.update_labels(box_labels)
+
+    # -- Statistics --
+
+    def _on_show_stats(self) -> None:
+        total_images = len(self._image_loader.image_list)
+        labeled = 0
+        total_annotations = 0
+        bbox_count = 0
+        polygon_count = 0
+        class_counts: dict[str, int] = {}
+
+        for fname in self._image_loader.image_list:
+            ann = self._annotation_store.get(fname)
+            if ann and ann.boxes:
+                labeled += 1
+                for box in ann.boxes:
+                    total_annotations += 1
+                    if box.annotation_type == "polygon":
+                        polygon_count += 1
+                    else:
+                        bbox_count += 1
+                    class_counts[box.class_name] = class_counts.get(box.class_name, 0) + 1
+
+        lines = [
+            f"<b>Images:</b> {labeled} labeled / {total_images} total",
+            f"<b>Annotations:</b> {total_annotations} ({bbox_count} boxes, {polygon_count} polygons)",
+            "",
+            "<b>Per-class counts:</b>",
+        ]
+        if class_counts:
+            for cls, cnt in sorted(class_counts.items(), key=lambda x: -x[1]):
+                lines.append(f"&nbsp;&nbsp;{cls}: {cnt}")
+        else:
+            lines.append("&nbsp;&nbsp;(none)")
+
+        QMessageBox.information(
+            self.main_window,
+            "Annotation Statistics",
+            "<br>".join(lines),
+        )
 
     # -- Class management --
 
     def _on_class_added(self, name: str) -> None:
+        name = name.strip()
+        if not name:
+            self.main_window.show_status_message("Class name cannot be empty")
+            return
         if self._class_registry.has_class(name):
             self.main_window.show_status_message(f"Class '{name}' already exists")
             return
@@ -314,7 +396,6 @@ class AppController:
             self._canvas_ctrl.set_annotation_mode("polygon")
 
     def _on_polygon_class_prompt_needed(self, points) -> None:
-        """Prompt user to select a class for a drawn polygon."""
         from alchemyannotate.views.dialogs import ClassSelectDialog
 
         active = self._canvas_ctrl._active_class or self._project_config.recently_used_class
@@ -333,7 +414,6 @@ class AppController:
         self._canvas_ctrl.create_polygon(points, name)
 
     def _on_class_prompt_needed(self, rect) -> None:
-        """Prompt user to select an existing class or create a new one."""
         from PySide6.QtCore import QRectF
         from alchemyannotate.views.dialogs import ClassSelectDialog
 
@@ -343,12 +423,14 @@ class AppController:
             return
 
         name = dialog.selected_class
+        if not name.strip():
+            self.main_window.show_status_message("Class name cannot be empty")
+            return
         if dialog.is_new_class and not self._class_registry.has_class(name):
             self._class_registry.add_class(name)
             self._refresh_class_panel()
             self._update_project_classes()
 
-        # Set as active class so subsequent boxes use it automatically
         self._canvas_ctrl.set_active_class(name)
         self._project_config.recently_used_class = name
         self._canvas_ctrl.create_box(QRectF(rect), name)
@@ -356,7 +438,7 @@ class AppController:
     def _on_edit_class_requested(self) -> None:
         box_id = self._canvas_ctrl.selected_box_id
         if not box_id:
-            self.main_window.show_status_message("No box selected")
+            self.main_window.show_status_message("No annotation selected")
             return
 
         classes = self._class_registry.classes
@@ -378,7 +460,7 @@ class AppController:
         new_class, ok = QInputDialog.getItem(
             self.main_window,
             "Edit Class",
-            "Select class for this box:",
+            "Select class for this annotation:",
             classes,
             current_idx,
             False,
@@ -386,6 +468,7 @@ class AppController:
         if ok and new_class:
             self._canvas_ctrl.change_box_class(box_id, new_class)
             self._refresh_box_list()
+            self._refresh_labels()
 
     # -- Format --
 
@@ -398,7 +481,29 @@ class AppController:
         if new_fmt == old_fmt:
             return
 
-        # Check if there are existing annotations in the old format
+        # Warn about polygon data loss when switching to VOC
+        if new_fmt == AnnotationFormat.VOC:
+            has_polygons = False
+            for fname in self._image_loader.image_list:
+                ann = self._annotation_store.get(fname)
+                if ann:
+                    if any(b.annotation_type == "polygon" for b in ann.boxes):
+                        has_polygons = True
+                        break
+            if has_polygons:
+                reply = QMessageBox.warning(
+                    self.main_window,
+                    "Polygon Data Loss",
+                    "Pascal VOC format does not support polygon annotations.\n"
+                    "Polygon data will be lost during export.\n\n"
+                    "Do you want to continue?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if reply == QMessageBox.StandardButton.No:
+                    self.main_window.set_format(old_fmt.value)
+                    return
+
         has_annotations = any(
             self._annotation_store.has_annotations(f)
             for f in self._image_loader.image_list
@@ -412,7 +517,6 @@ class AppController:
                 self.main_window.set_format(old_fmt.value)
                 return
             elif dialog.choice == FormatSwitchChoice.EXPORT_AND_SWITCH:
-                # Get image sizes
                 image_sizes = {}
                 for fname in self._image_loader.image_list:
                     image_sizes[fname] = self._image_loader.get_image_size(fname)

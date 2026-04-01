@@ -4,6 +4,8 @@ AlchemyAnnotate is a free, open-source, desktop image annotation tool built with
 
 Export your annotations in **YOLO**, **Pascal VOC**, and **COCO** formats with a single click.
 
+![AlchemyAnnotate Screenshot](assets/screenshot.png)
+
 ---
 
 ## Features
